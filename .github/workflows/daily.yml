@@ -25,7 +25,7 @@ jobs:
       - name: 必要なソフトを入れる
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q ffmpeg fonts-noto-cjk
+          sudo apt-get install -y -q ffmpeg fonts-noto-cjk fonts-noto-cjk-extra
           pip install -q -r requirements.txt
       - name: 市場データ取得・原稿作成
         id: fetch
