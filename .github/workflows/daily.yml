@@ -1,0 +1,60 @@
+name: 米国市況ショート 毎朝自動投稿
+
+on:
+  schedule:
+    # 日本時間 火〜土 6:20（= UTC 月〜金 21:20）。GitHubの混雑で数分〜十数分遅れることがあります
+    - cron: "20 21 * * 1-5"
+  workflow_dispatch:        # 手動実行ボタン
+    inputs:
+      privacy:
+        description: "公開設定 (public / unlisted / private)"
+        default: "private"
+      force:
+        description: "休場判定を無視して作成する (1=無視)"
+        default: "0"
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 必要なソフトを入れる
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q ffmpeg fonts-noto-cjk
+          pip install -q -r requirements.txt
+      - name: 市場データ取得・原稿作成
+        id: fetch
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          FORCE: ${{ github.event.inputs.force || '0' }}
+        run: |
+          set +e
+          python fetch_data.py data.json
+          code=$?
+          if [ $code -eq 78 ]; then echo "skip=1" >> $GITHUB_OUTPUT; exit 0; fi
+          exit $code
+      - name: 動画を作成（60秒）
+        if: steps.fetch.outputs.skip != '1'
+        run: python make_video.py data.json video.mp4
+      - name: 動画を保存（Actions画面からダウンロード可）
+        if: steps.fetch.outputs.skip != '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-${{ github.run_number }}
+          path: |
+            video.mp4
+            data.json
+          retention-days: 14
+      - name: YouTubeに投稿
+        if: steps.fetch.outputs.skip != '1'
+        env:
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          YT_PRIVACY: ${{ github.event.inputs.privacy || 'public' }}
+        run: python upload_youtube.py data.json video.mp4
