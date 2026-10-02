@@ -16,6 +16,9 @@ on:
         description: "投稿先 (both / youtube / instagram)"
         default: "both"
 
+permissions:
+  contents: write
+
 jobs:
   build-and-upload:
     runs-on: ubuntu-latest
@@ -61,10 +64,26 @@ jobs:
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
           YT_PRIVACY: ${{ github.event.inputs.privacy || 'public' }}
         run: python upload_youtube.py data.json video.mp4
-      - name: Instagramに投稿
+      - name: 動画を一時公開URLに置く（Instagram取り込み用）
+        id: media
         if: steps.fetch.outputs.skip != '1' && (github.event.inputs.targets || 'both') != 'youtube'
+        continue-on-error: true
+        run: |
+          name="video-$(date -u +%Y%m%d%H%M).mp4"
+          mkdir -p /tmp/media && cp video.mp4 "/tmp/media/$name"
+          cd /tmp/media
+          git init -q -b media
+          git config user.name "github-actions" && git config user.email "actions@github.com"
+          git add "$name" && git commit -qm "media $name"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" media
+          echo "url=https://raw.githubusercontent.com/${{ github.repository }}/media/$name" >> $GITHUB_OUTPUT
+      - name: Instagramに投稿
+        if: steps.media.outputs.url != ''
         continue-on-error: true
         env:
           IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
           IG_USER_ID: ${{ secrets.IG_USER_ID }}
-        run: python upload_instagram.py data.json video.mp4
+          VIDEO_URL: ${{ steps.media.outputs.url }}
+        run: |
+          sleep 20
+          python upload_instagram.py data.json video.mp4
