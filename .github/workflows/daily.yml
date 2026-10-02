@@ -12,6 +12,9 @@ on:
       force:
         description: "休場判定を無視して作成する (1=無視)"
         default: "0"
+      targets:
+        description: "投稿先 (both / youtube / instagram)"
+        default: "both"
 
 jobs:
   build-and-upload:
@@ -51,10 +54,17 @@ jobs:
             data.json
           retention-days: 14
       - name: YouTubeに投稿
-        if: steps.fetch.outputs.skip != '1'
+        if: steps.fetch.outputs.skip != '1' && (github.event.inputs.targets || 'both') != 'instagram'
         env:
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
           YT_PRIVACY: ${{ github.event.inputs.privacy || 'public' }}
         run: python upload_youtube.py data.json video.mp4
+      - name: Instagramに投稿
+        if: steps.fetch.outputs.skip != '1' && (github.event.inputs.targets || 'both') != 'youtube'
+        continue-on-error: true
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+        run: python upload_instagram.py data.json video.mp4
