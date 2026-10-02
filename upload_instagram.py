@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """完成した動画をInstagramリールとして投稿する（Instagram API / Instagramログイン方式）。
-必要な環境変数: IG_ACCESS_TOKEN, IG_USER_ID
+必要な環境変数: IG_ACCESS_TOKEN, IG_USER_ID, VIDEO_URL
+※IG_ACCESS_TOKEN は発行から約60日で期限切れ。期限前にMeta開発者画面で再発行して登録し直す
 使い方: python3 upload_instagram.py data.json video.mp4
 """
 import json, os, sys, time, urllib.parse, urllib.request
@@ -37,37 +38,17 @@ def caption(d):
 def main(dj, video):
     tok, uid = os.environ["IG_ACCESS_TOKEN"].strip(), os.environ["IG_USER_ID"].strip()
 
-    # 長期トークンの有効期限を延長（60日）。発行から24時間以上たっていれば延長される
-    try:
-        r = call("GET", "https://graph.instagram.com/refresh_access_token?" +
-                 urllib.parse.urlencode({"grant_type": "ig_refresh_token", "access_token": tok}))
-        days = int(r.get("expires_in", 0)) // 86400
-        print(f"トークン有効期限: あと約{days}日")
-        if r.get("access_token") and r["access_token"] != tok:
-            print("::warning::トークンが新しい値に更新されました。IG_ACCESS_TOKEN の更新が必要です。")
-            tok = r["access_token"]
-    except Exception as e:
-        print("トークン延長はスキップ:", str(e)[:200])
-
     d = json.load(open(dj))
-    size = os.path.getsize(video)
+    vurl = os.environ["VIDEO_URL"].strip()
 
-    # 1) アップロード用コンテナを作成（再開可能アップロード）
+    # 1) 公開URLの動画を指定してリール用コンテナを作成（Instagramが動画を取りに来る）
     c = call("POST", f"{API}/{uid}/media", {
-        "media_type": "REELS", "upload_type": "resumable", "caption": caption(d),
+        "media_type": "REELS", "video_url": vurl, "caption": caption(d),
         "share_to_feed": "true", "access_token": tok})
     cid = c["id"]
     print("コンテナ作成:", cid)
 
-    # 2) 動画ファイル本体を送る
-    with open(video, "rb") as f:
-        data = f.read()
-    up = call("POST", f"https://rupload.facebook.com/ig-api-upload/v25.0/{cid}", body=data, headers={
-        "Authorization": f"OAuth {tok}", "offset": "0", "file_size": str(size),
-        "Content-Type": "application/octet-stream"})
-    print("アップロード:", up)
-
-    # 3) Instagram側の処理完了を待つ（最大約10分）
+    # 2) Instagram側の処理完了を待つ（最大約10分）
     for _ in range(60):
         s = call("GET", f"{API}/{cid}?" + urllib.parse.urlencode({"fields": "status_code,status", "access_token": tok}))
         st = s.get("status_code")
@@ -79,7 +60,7 @@ def main(dj, video):
     else:
         raise RuntimeError("Instagram側の処理が10分以内に終わりませんでした")
 
-    # 4) 公開
+    # 3) 公開
     p = call("POST", f"{API}/{uid}/media_publish", {"creation_id": cid, "access_token": tok})
     m = call("GET", f"{API}/{p['id']}?" + urllib.parse.urlencode({"fields": "permalink", "access_token": tok}))
     print("Instagram投稿完了:", m.get("permalink", p["id"]))
